@@ -24,13 +24,15 @@ app = Flask(__name__)
 CORS(app) 
 
 # Danh sách các nguồn tin tức uy tín và URL tìm kiếm của họ
-# Mỗi URL có một placeholder '{query}' sẽ được thay thế bằng nội dung tìm kiếm.
+# Các URL này đã được thiết kế để tìm kiếm theo một từ khóa.
+# {query} là một biến giữ chỗ cho nội dung tìm kiếm của người dùng.
 # Cấu trúc: "Tên Nguồn": "URL Tìm Kiếm"
+# Đã cập nhật URL tìm kiếm cho Tuổi Trẻ và VietnamNet nếu có thay đổi gần đây
 RELIABLE_SOURCES = {
     "VnExpress": "https://timkiem.vnexpress.net/?q={query}",
-    "Thanh Niên": "https://thanhnien.vn/tim-kiem/?q={query}",
-    "Tuổi Trẻ": "https://tuoitre.vn/tim-kiem.html?q={query}",
-    "VietnamNet": "https://vietnamnet.vn/tim-kiem/{query}.html"
+    "Thanh Niên": "https://thanhnien.vn/tim-kiem/?q={query}", 
+    "Tuổi Trẻ": "https://tuoitre.vn/tim-kiem.htm?keywords={query}", # Cập nhật URL tìm kiếm của Tuổi Trẻ
+    "VietnamNet": "https://vietnamnet.vn/tim-kiem/{query}.html" # Giữ nguyên, đã là dạng phổ biến
 }
 
 # --- Kết thúc phần Cấu hình API ---
@@ -111,7 +113,8 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
         
         elif source_name == "Thanh Niên":
             # Thanh Niên: Bài viết thường nằm trong thẻ <article> với class 'story'
-            articles_html = soup.find_all('article', class_='story')
+            # Cập nhật selector nếu có thay đổi
+            articles_html = soup.find_all('article', class_='story') # Hoặc class khác nếu thay đổi
             for article in articles_html:
                 title_tag = article.find('h2', class_='story__title')
                 if title_tag and title_tag.a:
@@ -121,7 +124,8 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
         
         elif source_name == "Tuổi Trẻ":
             # Tuổi Trẻ: Bài viết thường nằm trong thẻ <h3> với class 'story__title'
-            articles_html = soup.find_all('h3', class_='story__title')
+            # Cập nhật selector nếu có thay đổi
+            articles_html = soup.find_all('h3', class_='story__title') # Hoặc class khác nếu thay đổi
             for article in articles_html:
                 title_tag = article.find('a')
                 if title_tag:
@@ -131,7 +135,8 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
         
         elif source_name == "VietnamNet":
             # VietnamNet: Bài viết thường nằm trong thẻ <h3> với class 'title'
-            articles_html = soup.find_all('h3', class_='title')
+            # Cập nhật selector nếu có thay đổi
+            articles_html = soup.find_all('h3', class_='title') # Hoặc class khác nếu thay đổi
             for article in articles_html:
                 title_tag = article.find('a')
                 if title_tag:
