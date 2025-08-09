@@ -1,5 +1,5 @@
 # app.py
-# Mã nguồn được phát triển bởi chuyên gia Python và Promt để cải thiện quy trình tra cứu thông tin.
+# Mã nguồn API trung gian được phát triển bởi chuyên gia Python và lĩnh vực phân tích dữ liệu.
 
 import os
 import requests
@@ -8,11 +8,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from bs4 import BeautifulSoup
 from urllib.parse import quote_plus
+from unidecode import unidecode # Thư viện mới để xử lý tiếng Việt không dấu
 
 # --- Bắt đầu phần Cấu hình API ---
 
+# Tạo một ứng dụng Flask. Đây là "trái tim" của API của chúng ta.
 app = Flask(__name__)
-CORS(app) # Cho phép các yêu cầu từ các domain khác truy cập API.
+# Cho phép các yêu cầu từ các domain khác truy cập API.
+# Điều này rất quan trọng khi n8n gửi request đến API của bạn.
+CORS(app) 
 
 # Danh sách các nguồn tin tức uy tín và URL tìm kiếm của họ
 # Các URL này đã được thiết kế để tìm kiếm theo một từ khóa.
@@ -29,15 +33,24 @@ RELIABLE_SOURCES = {
 
 # --- Bắt đầu phần Logic xử lý Web Scraping và Phân tích ---
 
+def clean_and_normalize_text(text):
+    """
+    Xử lý chuỗi văn bản: loại bỏ dấu tiếng Việt và chuyển về chữ thường.
+    Điều này giúp so sánh các từ khóa một cách linh hoạt hơn.
+    """
+    return unidecode(text).lower()
+
 def check_relevance(title, query_words):
     """
     Kiểm tra mức độ liên quan của tiêu đề bài viết với các từ khóa tìm kiếm.
+    Hàm này đã được nâng cấp để xử lý ngôn từ không dấu.
     Trả về số từ khóa khớp.
     """
     relevance_score = 0
-    title_lower = title.lower()
+    title_normalized = clean_and_normalize_text(title)
     for word in query_words:
-        if word in title_lower:
+        # Kiểm tra nếu từ khóa có trong tiêu đề đã được chuẩn hóa
+        if word in title_normalized:
             relevance_score += 1
     return relevance_score
 
@@ -46,40 +59,45 @@ def scrape_data(source_name, source_url, query_words, original_query):
     Hàm này thực hiện web scraping trên một URL nguồn cụ thể.
     Nó tìm kiếm các bài viết liên quan và trích xuất tiêu đề, URL.
     """
-    # Mã hóa chuỗi truy vấn để sử dụng trong URL
+    # Mã hóa chuỗi truy vấn để sử dụng trong URL, đảm bảo URL hợp lệ
     encoded_query = quote_plus(original_query)
     search_url = source_url.format(query=encoded_query)
     
     try:
+        # Giả lập một trình duyệt web để tránh bị chặn bởi trang web
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        # Gửi yêu cầu HTTP GET để tải trang web, thiết lập timeout để tránh treo máy
         response = requests.get(search_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             matched_articles = []
             
-            # --- Logic cụ thể cho từng trang báo (đã mở rộng) ---
+            # --- Logic cụ thể cho từng trang báo ---
+            # Mỗi khối if/elif chứa logic tìm kiếm riêng biệt cho từng trang
             if "vnexpress" in source_url:
                 articles = soup.find_all('article', class_='item-news')
             elif "thanhnien" in source_url:
                 articles = soup.find_all('article', class_='story')
             elif "tuoitre" in source_url:
-                articles = soup.find_all('div', class_='name-news')
+                articles = soup.find_all('h3', class_='story__title')
             elif "vietnamnet" in source_url:
-                articles = soup.find_all('div', class_='box-content-search-result')
+                articles = soup.find_all('h3', class_='title')
             else:
                 articles = []
 
             for article in articles:
-                title_tag = article.find('h3', class_='title-news') or article.find('h2', class_='story__title') or article.find('h3', class_='title')
+                # Lấy tiêu đề và URL của bài viết
+                title_tag = article.find('a')
                 if title_tag:
-                    title = title_tag.a.get_text(strip=True)
-                    url = title_tag.a['href']
+                    title = title_tag.get_text(strip=True)
+                    url = title_tag['href']
                     
-                    # Cập nhật URL đầy đủ cho VietnamNet
+                    # Cập nhật URL đầy đủ cho VietnamNet nếu cần
                     if "vietnamnet" in source_url and not url.startswith("http"):
                         url = "https://vietnamnet.vn" + url
                     
+                    # Tính điểm liên quan
                     relevance = check_relevance(title, query_words)
                     
                     # Chỉ thêm bài viết nếu có ít nhất 1 từ khóa khớp
@@ -89,7 +107,6 @@ def scrape_data(source_name, source_url, query_words, original_query):
             return matched_articles
         return []
     except requests.exceptions.RequestException as e:
-        # Xử lý lỗi kết nối một cách chi tiết
         print(f"Lỗi khi kết nối đến {source_name}: {e}")
         return []
 
@@ -116,9 +133,9 @@ def check_trustworthiness():
                 "matching_articles_count": 0
             }), 400
 
-        # Phân tách nội dung tra cứu thành các từ khóa
-        query_words = [word.lower() for word in original_query.split()]
-
+        # Phân tách nội dung tra cứu thành các từ khóa và chuẩn hóa
+        query_words = [clean_and_normalize_text(word) for word in original_query.split()]
+        
         all_matched_sources = []
         total_articles = 0
         total_relevance_score = 0
