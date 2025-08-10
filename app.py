@@ -31,7 +31,6 @@ CORS(app)
 # {query} là một biến giữ chỗ cho nội dung tìm kiếm của người dùng.
 # Cấu trúc: "Tên Nguồn": "URL Tìm Kiếm"
 # Đã cập nhật URL tìm kiếm dựa trên quan sát gần đây nhất (tháng 8/2025)
-# Đã loại bỏ VietnamNet theo yêu cầu.
 RELIABLE_SOURCES = {
     "VnExpress": "https://timkiem.vnexpress.net/?q={query}",
     "Thanh Niên": "https://thanhnien.vn/tim-kiem/?q={query}", 
@@ -116,7 +115,7 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
             # Các selector này có thể thay đổi theo thời gian nếu trang web cập nhật giao diện.
             
             if source_name == "VnExpress":
-                # VnExpress: Bài viết thường nằm trong thẻ <article> với class 'item-news'
+                # Dựa trên image_6f2ef8.jpg: VnExpress dùng <article class="item-news"> và tiêu đề trong <h3 class="title-news">
                 articles_html = soup.find_all('article', class_='item-news')
                 for article in articles_html:
                     title_tag = article.find('h3', class_='title-news')
@@ -126,25 +125,25 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
                         found_articles.append({'title': title, 'url': url})
             
             elif source_name == "Thanh Niên":
-                # Thanh Niên: Bài viết thường nằm trong thẻ <article> với class 'story'
-                # Cập nhật selector cho Thanh Niên (dựa trên mẫu phổ biến)
-                articles_html = soup.find_all('article', class_='story') 
+                # Dựa trên image_6f321f.jpg: Thanh Niên dùng <div class="box-category-content"> -> <div class="box-category-middle item-first"> -> <h2 class="story__title">
+                # Selector đã được tinh chỉnh để tìm các bài trong danh sách kết quả
+                articles_html = soup.find_all('div', class_='box-category-middle') # Tìm các khối bài viết
                 for article in articles_html:
-                    title_tag = article.find('h2', class_='story__title') 
+                    title_tag = article.find('h2', class_='story__title') # Tìm tiêu đề trong khối
                     if title_tag and title_tag.a:
                         title = title_tag.a.get_text(strip=True)
                         url = title_tag.a['href']
                         found_articles.append({'title': title, 'url': url})
             
             elif source_name == "Tuổi Trẻ":
-                # Tuổi Trẻ: Bài viết thường nằm trong thẻ <h3> với class 'story__title'
-                # Cập nhật selector cho Tuổi Trẻ (dựa trên mẫu phổ biến)
-                articles_html = soup.find_all('h3', class_='story__title') 
+                # Dựa trên image_6f2ea3.jpg: Tuổi Trẻ dùng <div class="box-category-content"> -> <div class="box-category-middle item-first"> -> <h3 class="box-category-title">
+                # Selector đã được tinh chỉnh để tìm các bài trong danh sách kết quả
+                articles_html = soup.find_all('div', class_='box-category-middle') # Tìm các khối bài viết
                 for article in articles_html:
-                    title_tag = article.find('a')
-                    if title_tag:
-                        title = title_tag.get_text(strip=True)
-                        url = title_tag['href']
+                    title_tag = article.find('h3', class_='box-category-title') # Tìm tiêu đề trong khối
+                    if title_tag and title_tag.a:
+                        title = title_tag.a.get_text(strip=True)
+                        url = title_tag.a['href']
                         found_articles.append({'title': title, 'url': url})
             
             # VietnamNet đã được loại bỏ khỏi RELIABLE_SOURCES
