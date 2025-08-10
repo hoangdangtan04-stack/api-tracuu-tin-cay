@@ -31,11 +31,12 @@ CORS(app)
 # {query} là một biến giữ chỗ cho nội dung tìm kiếm của người dùng.
 # Cấu trúc: "Tên Nguồn": "URL Tìm Kiếm"
 # Đã cập nhật URL tìm kiếm dựa trên quan sát gần đây nhất (tháng 8/2025)
+# Đã loại bỏ VietnamNet theo yêu cầu.
 RELIABLE_SOURCES = {
     "VnExpress": "https://timkiem.vnexpress.net/?q={query}",
     "Thanh Niên": "https://thanhnien.vn/tim-kiem/?q={query}", 
     "Tuổi Trẻ": "https://tuoitre.vn/tim-kiem.htm?keywords={query}", 
-    "VietnamNet": "https://vietnamnet.vn/tim-kiem/{query}.html" 
+    # "VietnamNet": "https://vietnamnet.vn/tim-kiem/{query}.html" # Đã bỏ qua theo yêu cầu
 }
 
 # Danh sách các User-Agent phổ biến để giả lập trình duyệt khác nhau
@@ -104,7 +105,7 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
             
             # Gửi yêu cầu HTTP GET để tải nội dung trang web
             # Thiết lập timeout để tránh treo máy nếu trang web phản hồi chậm
-            response = requests.get(search_url, headers=headers, timeout=15) 
+            response = requests.get(search_url, headers=headers, timeout=15) # Tăng timeout lên 15 giây
             response.raise_for_status() # Ném lỗi HTTPError cho các mã trạng thái lỗi (4xx, 5xx)
             
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -146,19 +147,18 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
                         url = title_tag['href']
                         found_articles.append({'title': title, 'url': url})
             
-            elif source_name == "VietnamNet":
-                # VietnamNet: Bài viết thường nằm trong thẻ <h3> với class 'title'
-                # Cập nhật selector cho VietnamNet (dựa trên mẫu phổ biến)
-                articles_html = soup.find_all('h3', class_='title') 
-                for article in articles_html:
-                    title_tag = article.find('a')
-                    if title_tag:
-                        title = title_tag.get_text(strip=True)
-                        url = title_tag['href']
-                        # VietnamNet đôi khi trả về URL tương đối, cần chuyển thành tuyệt đối
-                        if not url.startswith("http"):
-                            url = "https://vietnamnet.vn" + url
-                        found_articles.append({'title': title, 'url': url})
+            # VietnamNet đã được loại bỏ khỏi RELIABLE_SOURCES
+            # Logic này sẽ không được gọi nếu VietnamNet không có trong RELIABLE_SOURCES
+            # elif source_name == "VietnamNet":
+            #     articles_html = soup.find_all('h3', class_='title') 
+            #     for article in articles_html:
+            #         title_tag = article.find('a')
+            #         if title_tag:
+            #             title = title_tag.get_text(strip=True)
+            #             url = title_tag['href']
+            #             if not url.startswith("http"):
+            #                 url = "https://vietnamnet.vn" + url
+            #             found_articles.append({'title': title, 'url': url})
             
             # Tính điểm liên quan cho từng bài viết tìm được
             articles_with_relevance = []
@@ -210,57 +210,36 @@ def check_trustworthiness():
         # Chuẩn hóa các từ khóa tìm kiếm từ nội dung gốc
         query_words_normalized = [clean_and_normalize_text(word) for word in original_query.split()]
         
-        reliable_articles_found = [] # Danh sách bài viết từ nguồn uy tín
-        unreliable_articles_found = [] # Danh sách bài viết từ nguồn không uy tín
-
-        # PHẦN MỚI: Ưu tiên tìm kiếm trên các nguồn uy tín
+        all_found_articles = [] # Danh sách tổng hợp tất cả các bài viết tìm được từ mọi nguồn
+        
+        # Vòng lặp qua từng nguồn uy tín để scrape dữ liệu
         for source_name, source_url_template in RELIABLE_SOURCES.items():
             articles_from_source = scrape_data(source_name, source_url_template, query_words_normalized, original_query)
             if articles_from_source:
-                reliable_articles_found.extend(articles_from_source)
-        
-        # Sắp xếp các bài viết uy tín theo điểm liên quan giảm dần
-        reliable_articles_found.sort(key=lambda x: x['relevance_score'], reverse=True)
+                all_found_articles.extend(articles_from_source) # Thêm các bài viết tìm được vào danh sách tổng
 
-        # Nếu tìm thấy bài viết trên các nguồn uy tín
-        if reliable_articles_found:
-            unique_reliable_sources = set(article['name'] for article in reliable_articles_found)
+        # Sắp xếp tất cả các bài viết tìm được theo điểm liên quan giảm dần
+        all_found_articles.sort(key=lambda x: x['relevance_score'], reverse=True)
+        
+        # Lọc ra các nguồn duy nhất đã tìm thấy bài viết
+        unique_sources_found = set(article['name'] for article in all_found_articles)
+
+        # Phân tích kết quả và trả về phản hồi JSON chi tiết hơn
+        if all_found_articles:
             return jsonify({
-                "message": f"Tìm thấy {len(reliable_articles_found)} bài viết liên quan trên {len(unique_reliable_sources)} nguồn đáng tin cậy.",
-                "is_reliable": True, # Kết luận là tin cậy
-                "matched_sources": reliable_articles_found,
-                "matching_articles_count": len(reliable_articles_found)
+                "message": f"Tìm thấy {len(all_found_articles)} bài viết liên quan trên {len(unique_sources_found)} nguồn đáng tin cậy.",
+                "is_reliable": True, # Kết luận là tin cậy vì tìm thấy trên nguồn uy tín
+                "matched_sources": all_found_articles,
+                "matching_articles_count": len(all_found_articles)
             })
         else:
-            # PHẦN MỚI: Nếu không tìm thấy trên nguồn uy tín, tìm kiếm trên các nguồn không uy tín
-            # Đây là phần bạn cần thay thế UNRELIABLE_SOURCES bằng các trang web thực tế
-            # mà bạn coi là không uy tín và có thể chứa thông tin sai lệch.
-            # Logic web scraping cho các trang này có thể cần được tùy chỉnh thêm.
-            for source_name, source_url_template in UNRELIABLE_SOURCES.items():
-                articles_from_source = scrape_data(source_name, source_url_template, query_words_normalized, original_query)
-                if articles_from_source:
-                    unreliable_articles_found.extend(articles_from_source)
-            
-            # Sắp xếp các bài viết không uy tín theo điểm liên quan giảm dần
-            unreliable_articles_found.sort(key=lambda x: x['relevance_score'], reverse=True)
-
-            # Nếu tìm thấy bài viết trên các nguồn không uy tín
-            if unreliable_articles_found:
-                unique_unreliable_sources = set(article['name'] for article in unreliable_articles_found)
-                return jsonify({
-                    "message": f"Tìm thấy {len(unreliable_articles_found)} bài viết liên quan trên {len(unique_unreliable_sources)} nguồn không đáng tin cậy. Thông tin có thể sai lệch.",
-                    "is_reliable": False, # Kết luận là sai lệch
-                    "matched_sources": unreliable_articles_found,
-                    "matching_articles_count": len(unreliable_articles_found)
-                })
-            else:
-                # Nếu không tìm thấy ở cả hai loại nguồn
-                return jsonify({
-                    "message": "Không tìm thấy nội dung liên quan trên các nguồn tin cậy.",
-                    "is_reliable": False, # Kết luận là không xác định
-                    "matched_sources": [],
-                    "matching_articles_count": 0
-                })
+            # Nếu không tìm thấy bài viết nào trên các nguồn uy tín
+            return jsonify({
+                "message": "Không tìm thấy nội dung liên quan trên các nguồn đáng tin cậy.",
+                "is_reliable": False, # Kết luận là không đáng tin cậy (hoặc không xác định)
+                "matched_sources": [],
+                "matching_articles_count": 0
+            })
     
     except Exception as e:
         # Xử lý các lỗi ngoại lệ không mong muốn xảy ra ở cấp độ API
@@ -284,7 +263,7 @@ if __name__ == '__main__':
     
     # Chạy ứng dụng Flask
     # host='0.0.0.0' cho phép ứng dụng chấp nhận kết nối từ bên ngoài (cần cho Render)
-    # debug=True bật chế độ gỡ lỗi (chỉ dùng khi khi phát triển)
+    # debug=True bật chế độ gỡ lỗi (chỉ dùng khi phát triển)
     app.run(host='0.0.0.0', debug=True, port=port)
 
 # --- Kết thúc phần Khởi chạy ứng dụng ---
