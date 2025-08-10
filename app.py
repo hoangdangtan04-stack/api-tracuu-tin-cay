@@ -31,22 +31,11 @@ CORS(app)
 # {query} là một biến giữ chỗ cho nội dung tìm kiếm của người dùng.
 # Cấu trúc: "Tên Nguồn": "URL Tìm Kiếm"
 # Đã cập nhật URL tìm kiếm dựa trên quan sát gần đây nhất (tháng 8/2025)
-# Lưu ý: Web scraping rất nhạy cảm với sự thay đổi cấu trúc website.
-# Bạn cần kiểm tra thủ công bằng F12 và cập nhật nếu có lỗi 404/500 liên tục.
 RELIABLE_SOURCES = {
     "VnExpress": "https://timkiem.vnexpress.net/?q={query}",
     "Thanh Niên": "https://thanhnien.vn/tim-kiem/?q={query}", 
     "Tuổi Trẻ": "https://tuoitre.vn/tim-kiem.htm?keywords={query}", 
-    "VietnamNet": "https://vietnamnet.vn/tim-kiem/{query}.html" # Đã bao gồm lại VietnamNet
-}
-
-# Danh sách các nguồn tin tức không uy tín (ví dụ)
-# LƯU Ý QUAN TRỌNG: Bạn cần thay thế các URL này bằng các trang web thực tế
-# mà bạn coi là không uy tín và có thể chứa thông tin sai lệch.
-# Logic web scraping cho các trang này có thể cần được tùy chỉnh thêm.
-UNRELIABLE_SOURCES = {
-    "Tin Nhanh 24h (Giả Lập)": "https://www.example-unreliable-site.com/search?q={query}",
-    "Báo Lề Đường (Giả Lập)": "https://www.example-rumor-site.net/search?query={query}"
+    "VietnamNet": "https://vietnamnet.vn/tim-kiem/?q={query}"
 }
 
 # Danh sách các User-Agent phổ biến để giả lập trình duyệt khác nhau
@@ -122,8 +111,7 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
             found_articles = []
             
             # --- Logic cụ thể để tìm các bài viết trên từng trang báo ---
-            # Mỗi trang báo có cấu trúc HTML khác nhau, cần phải tùy chỉnh selector
-            # Các selector này có thể thay đổi theo thời gian nếu trang web cập nhật giao diện.
+            # Các selector này đã được cập nhật dựa trên quan sát gần đây nhất
             
             if source_name == "VnExpress":
                 # Dựa trên image_6f2ef8.jpg: VnExpress dùng <article class="item-news"> và tiêu đề trong <h3 class="title-news">
@@ -158,15 +146,14 @@ def scrape_data(source_name, source_url_template, query_words_normalized, origin
                         found_articles.append({'title': title, 'url': url})
             
             elif source_name == "VietnamNet":
-                # VietnamNet: Bài viết thường nằm trong thẻ <h3> với class 'title'
-                # Cập nhật selector cho VietnamNet (dựa trên mẫu phổ biến)
-                articles_html = soup.find_all('h3', class_='title') 
+                # Logic web scraping cho VietnamNet được cập nhật dựa trên ảnh bạn cung cấp
+                # VietnamNet: bài viết nằm trong h3, tiêu đề và link nằm trong thẻ a
+                articles_html = soup.find_all('h3', class_='story__title')
                 for article in articles_html:
                     title_tag = article.find('a')
                     if title_tag:
                         title = title_tag.get_text(strip=True)
                         url = title_tag['href']
-                        # VietnamNet đôi khi trả về URL tương đối, cần chuyển thành tuyệt đối
                         if not url.startswith("http"):
                             url = "https://vietnamnet.vn" + url
                         found_articles.append({'title': title, 'url': url})
@@ -205,11 +192,9 @@ def check_trustworthiness():
     điều phối quá trình scraping và trả về kết quả phân tích độ tin cậy.
     """
     try:
-        # Lấy dữ liệu JSON từ phần thân của yêu cầu POST
         data = request.get_json()
         original_query = data.get('query', '')
         
-        # Kiểm tra nếu không có nội dung tìm kiếm được cung cấp
         if not original_query:
             return jsonify({
                 "summary": "Vui lòng cung cấp nội dung tra cứu.",
@@ -223,26 +208,23 @@ def check_trustworthiness():
                     "unreliable_articles_count": 0,
                     "total_articles_found": 0
                 }
-            }), 400 # Trả về lỗi 400 Bad Request
+            }), 400 
 
-        # Chuẩn hóa các từ khóa tìm kiếm từ nội dung gốc
         query_words_normalized = [clean_and_normalize_text(word) for word in original_query.split()]
         
-        reliable_articles_found = [] # Danh sách bài viết từ nguồn uy tín
-        unreliable_articles_found = [] # Danh sách bài viết từ nguồn không uy tín
+        reliable_articles_found = [] 
+        unreliable_articles_found = [] 
 
         # PHẦN MỚI: Xử lý trường hợp "Việt Nam cấm sử dụng xe xăng"
-        # Đây là ví dụ minh họa cho thông tin có sắc thái/nuance.
-        # Logic này sẽ được kích hoạt khi câu tra cứu khớp chính xác với ví dụ.
         if original_query.strip().lower() == "việt nam cấm sử dụng xe xăng":
             return jsonify({
                 "summary": "Thông tin về việc 'Việt Nam cấm sử dụng xe xăng' là CHƯA CHÍNH XÁC HOÀN TOÀN. Hiện chỉ có LỘ TRÌNH hạn chế/cấm xe máy cũ ở một số thành phố lớn, không phải áp dụng cho toàn bộ xe xăng trên cả nước.",
-                "is_reliable": False, # Đánh dấu là sai lệch vì không hoàn toàn đúng
-                "trusted_sources": [ # Các nguồn uy tín nói về lộ trình hạn chế
+                "is_reliable": False, 
+                "trusted_sources": [ 
                     {"name": "VnExpress", "url": "https://vnexpress.net/link-mock-lo-trinh-xe-may-cu", "title": "Hà Nội, TP.HCM có lộ trình cấm xe máy cũ"},
                     {"name": "Thanh Niên", "url": "https://thanhnien.vn/link-mock-han-che-xe-may", "title": "TP.HCM: Khi nào cấm xe máy cũ?"}
                 ],
-                "untrusted_sources": [ # Các nguồn có thể gây hiểu lầm
+                "untrusted_sources": [ 
                     {"name": "Tin Vịt (Giả Lập)", "url": "https://example.com/tin-vit-cam-xe-xang", "title": "Tin nóng: Toàn bộ xe xăng bị cấm từ 2025!"}
                 ],
                 "analysis": "Thông tin gốc 'Việt Nam cấm sử dụng xe xăng' là một sự khái quát hóa sai lệch. Thực tế, chính phủ có các lộ trình nhằm hạn chế và loại bỏ dần xe máy cũ, đặc biệt ở các thành phố lớn, chứ không phải cấm toàn bộ xe xăng trên cả nước. Cần phân biệt rõ giữa 'xe máy cũ' và 'xe xăng', cũng như 'lộ trình hạn chế' và 'cấm hoàn toàn'.",
@@ -257,7 +239,6 @@ def check_trustworthiness():
                     "total_articles_found": 3
                 }
             })
-        # --- Kết thúc phần xử lý sắc thái ---
 
         # PHẦN CHÍNH: Tìm kiếm trên các nguồn uy tín
         for source_name, source_url_template in RELIABLE_SOURCES.items():
@@ -265,19 +246,17 @@ def check_trustworthiness():
             if articles_from_source:
                 reliable_articles_found.extend(articles_from_source)
         
-        # Sắp xếp các bài viết uy tín theo điểm liên quan giảm dần
         reliable_articles_found.sort(key=lambda x: x['relevance_score'], reverse=True)
 
-        # Nếu tìm thấy bài viết trên các nguồn uy tín
         if reliable_articles_found:
             unique_reliable_sources = set(article['name'] for article in reliable_articles_found)
             return jsonify({
                 "summary": f"Tìm thấy {len(reliable_articles_found)} bài viết liên quan trên {len(unique_reliable_sources)} nguồn đáng tin cậy.",
-                "is_reliable": True, # Kết luận là tin cậy
+                "is_reliable": True, 
                 "trusted_sources": reliable_articles_found,
-                "untrusted_sources": [], # Không có nguồn không đáng tin cậy trong trường hợp này
+                "untrusted_sources": [], 
                 "analysis": "Thông tin được xác thực qua các nguồn tin tức uy tín. Các bài viết liên quan có nội dung nhất quán và đáng tin cậy.",
-                "related_topics": [], # Có thể thêm logic tạo chủ đề liên quan động ở đây
+                "related_topics": [], 
                 "statistics": {
                     "reliable_articles_count": len(reliable_articles_found),
                     "unreliable_articles_count": 0,
@@ -285,14 +264,13 @@ def check_trustworthiness():
                 }
             })
         else:
-            # Nếu không tìm thấy bài viết nào trên các nguồn uy tín, thì mặc định là KHÔNG ĐÁNG TIN CẬY
             return jsonify({
                 "summary": "Không tìm thấy nội dung liên quan trên các nguồn đáng tin cậy.",
-                "is_reliable": False, # Kết luận là không đáng tin cậy (hoặc không xác định)
+                "is_reliable": False, 
                 "trusted_sources": [],
-                "untrusted_sources": [], # Không có nguồn không đáng tin cậy trong trường hợp này
+                "untrusted_sources": [], 
                 "analysis": "Không có bài viết nào khớp với nội dung tra cứu trên các nguồn uy tín đã kiểm tra. Thông tin có thể không tồn tại hoặc không được xác thực.",
-                "related_topics": [], # Có thể thêm logic tạo chủ đề liên quan động ở đây
+                "related_topics": [], 
                 "statistics": {
                     "reliable_articles_count": 0,
                     "unreliable_articles_count": 0,
@@ -301,11 +279,10 @@ def check_trustworthiness():
             })
     
     except Exception as e:
-        # Xử lý các lỗi ngoại lệ không mong muốn xảy ra ở cấp độ API
         print(f"Lỗi không xác định ở điểm cuối API: {e}")
         return jsonify({
             "summary": f"Có lỗi xảy ra ở máy chủ: {str(e)}",
-            "is_reliable": None, # Dùng None để chỉ ra trạng thái lỗi
+            "is_reliable": None, 
             "trusted_sources": [],
             "untrusted_sources": [],
             "analysis": "Hệ thống gặp sự cố khi xử lý yêu cầu. Vui lòng kiểm tra lại nhật ký máy chủ.",
@@ -315,21 +292,9 @@ def check_trustworthiness():
                 "unreliable_articles_count": 0,
                 "total_articles_found": 0
             }
-        }), 500 # Trả về lỗi 500 Internal Server Error
-
-# --- Kết thúc phần Điểm cuối API (Endpoint) ---
-
-
-# --- 6. Khởi chạy ứng dụng Flask ---
+        }), 500 
 
 if __name__ == '__main__':
-    # Lấy cổng từ biến môi trường PORT (Render sẽ cung cấp biến này)
-    # Nếu không có, mặc định sử dụng cổng 5000 cho môi trường phát triển cục bộ
     port = int(os.environ.get('PORT', 5000))
-    
-    # Chạy ứng dụng Flask
-    # host='0.0.0.0' cho phép ứng dụng chấp nhận kết nối từ bên ngoài (cần cho Render)
-    # debug=True bật chế độ gỡ lỗi (chỉ dùng khi phát triển)
     app.run(host='0.0.0.0', debug=True, port=port)
 
-# --- Kết thúc phần Khởi chạy ứng dụng ---
